@@ -27,7 +27,21 @@ const console = defineTabTool({
     type: 'readOnly',
   },
   handle: async (tab, params, response) => {
-    tab.consoleMessages().map(message => response.addResult(message.toString()));
+    const messages = tab.consoleMessages();
+    if (messages.length === 0) {
+      response.addResult('No console messages captured.');
+      return;
+    }
+
+    if (response.context.config.outputToFiles) {
+      // Write all console messages to file
+      const allMessages = messages.map(msg => msg.toString()).join('\n');
+      await response.addResultWithFileOption(allMessages, 'console');
+      response.addResult(`Total console messages: ${messages.length}`);
+    } else {
+      // Include messages in response (existing behavior)
+      messages.map(message => response.addResult(message.toString()));
+    }
   },
 });
 

@@ -32,7 +32,22 @@ const requests = defineTabTool({
 
   handle: async (tab, params, response) => {
     const requests = tab.requests();
-    [...requests.entries()].forEach(([req, res]) => response.addResult(renderRequest(req, res)));
+    const requestEntries = [...requests.entries()];
+    
+    if (requestEntries.length === 0) {
+      response.addResult('No network requests captured.');
+      return;
+    }
+
+    if (response.context.config.outputToFiles) {
+      // Write all network requests to file
+      const allRequests = requestEntries.map(([req, res]) => renderRequest(req, res)).join('\n');
+      await response.addResultWithFileOption(allRequests, 'network');
+      response.addResult(`Total network requests: ${requestEntries.length}`);
+    } else {
+      // Include requests in response (existing behavior)
+      requestEntries.forEach(([req, res]) => response.addResult(renderRequest(req, res)));
+    }
   },
 });
 

@@ -15,10 +15,14 @@
  */
 
 import { renderModalStates } from './tab.js';
+import { outputFile } from './config.js';
+import path from 'path';
+import fs from 'fs/promises';
 
 import type { Tab, TabSnapshot } from './tab.js';
 import type { ImageContent, TextContent } from '@modelcontextprotocol/sdk/types.js';
 import type { Context } from './context.js';
+import type { FullConfig } from './config.js';
 
 export class Response {
   private _result: string[] = [];
@@ -28,6 +32,7 @@ export class Response {
   private _includeSnapshot = false;
   private _includeTabs = false;
   private _tabSnapshot: TabSnapshot | undefined;
+  private _outputFiles: string[] = [];
 
   readonly toolName: string;
   readonly toolArgs: Record<string, any>;
@@ -41,6 +46,21 @@ export class Response {
 
   addResult(result: string) {
     this._result.push(result);
+  }
+
+  async addResultWithFileOption(result: string, type: 'console' | 'network' = 'console') {
+    if (this._context.config.outputToFiles && result.length > 500) {
+      // Write detailed output to file if it's long and outputToFiles is enabled
+      const filepath = await this._writeDetailedOutputToFile(result, type);
+      this.addResult(`${type}: ${path.basename(filepath)}`);
+      this.addResult(`Use: head/grep/tail/cat`);
+    } else {
+      this.addResult(result);
+    }
+  }
+
+  get context(): Context {
+    return this._context;
   }
 
   addError(error: string) {
@@ -80,6 +100,27 @@ export class Response {
     this._includeTabs = true;
   }
 
+  private async _writeDetailedOutputToFile(detailedContent: string, type: 'snapshot' | 'console' | 'network'): Promise<string> {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `${this.toolName}-${timestamp}.txt`;
+    const filepath = await outputFile(this._context.config, undefined, filename);
+    
+    await fs.writeFile(filepath, detailedContent, 'utf-8');
+    this._outputFiles.push(filepath);
+    
+    return filepath;
+  }
+
+  private _shouldIncludeSnapshot(): boolean {
+    // If outputToFiles is enabled, always capture snapshot but write to file
+    if (this._context.config.outputToFiles) {
+      return !!this._tabSnapshot;
+    }
+    
+    // Original behavior
+    return this._includeSnapshot || this._includeTabs;
+  }
+
   async finish() {
     // All the async snapshotting post-action is happening here.
     // Everything below should race against modal states.
@@ -93,7 +134,7 @@ export class Response {
     return this._tabSnapshot;
   }
 
-  serialize(): { content: (TextContent | ImageContent)[], isError?: boolean } {
+  async serialize(): Promise<{ content: (TextContent | ImageContent)[], isError?: boolean }> {
     const response: string[] = [];
 
     // Start with command result.
@@ -116,13 +157,30 @@ ${this._code.join('\n')}
     if (this._includeSnapshot || this._includeTabs)
       response.push(...renderTabsMarkdown(this._context.tabs(), this._includeTabs));
 
-    // Add snapshot if provided.
-    if (this._tabSnapshot?.modalStates.length) {
-      response.push(...renderModalStates(this._context, this._tabSnapshot.modalStates));
-      response.push('');
-    } else if (this._tabSnapshot) {
-      response.push(renderTabSnapshot(this._tabSnapshot));
-      response.push('');
+    // Add snapshot if provided - write to file or include in response
+    const shouldIncludeSnapshot = this._shouldIncludeSnapshot();
+    if (shouldIncludeSnapshot && this._tabSnapshot?.modalStates.length) {
+      const modalContent = renderModalStates(this._context, this._tabSnapshot.modalStates).join('\n');
+      if (this._context.config.outputToFiles) {
+        const filepath = await this._writeDetailedOutputToFile(modalContent, 'snapshot');
+        response.push(`### Snapshot: ${path.basename(filepath)}`);
+        response.push(`Use: head/grep/tail/cat`);
+        response.push('');
+      } else {
+        response.push(modalContent);
+        response.push('');
+      }
+    } else if (shouldIncludeSnapshot && this._tabSnapshot) {
+      const snapshotContent = renderTabSnapshot(this._tabSnapshot, this._context.config);
+      if (this._context.config.outputToFiles) {
+        const filepath = await this._writeDetailedOutputToFile(snapshotContent, 'snapshot');
+        response.push(`### Page info: ${path.basename(filepath)}`);
+        response.push(`Use: head/grep/tail/cat`);
+        response.push('');
+      } else {
+        response.push(snapshotContent);
+        response.push('');
+      }
     }
 
     // Main response part
@@ -140,16 +198,30 @@ ${this._code.join('\n')}
   }
 }
 
-function renderTabSnapshot(tabSnapshot: TabSnapshot): string {
+function renderTabSnapshot(tabSnapshot: TabSnapshot, config: FullConfig): string {
   const lines: string[] = [];
 
+  // Console messages - simplified for regular output, detailed content goes to files
   if (tabSnapshot.consoleMessages.length) {
-    lines.push(`### New console messages`);
-    for (const message of tabSnapshot.consoleMessages)
-      lines.push(`- ${trim(message.toString(), 100)}`);
+    if (config.outputToFiles) {
+      // Just show summary when writing to files
+      lines.push(`### Console messages (${tabSnapshot.consoleMessages.length} total)`);
+      lines.push(`- ${tabSnapshot.consoleMessages.length} console messages captured`);
+    } else {
+      // Original behavior - show limited console messages inline
+      lines.push(`### New console messages`);
+      const messages = tabSnapshot.consoleMessages.slice(0, 5);
+      for (const message of messages) {
+        lines.push(`- ${trim(message.toString(), 100)}`);
+      }
+      if (tabSnapshot.consoleMessages.length > 5) {
+        lines.push(`- ... and ${tabSnapshot.consoleMessages.length - 5} more console messages`);
+      }
+    }
     lines.push('');
   }
 
+  // Downloads - always show since they're usually important
   if (tabSnapshot.downloads.length) {
     lines.push(`### Downloads`);
     for (const entry of tabSnapshot.downloads) {

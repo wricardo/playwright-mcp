@@ -46,6 +46,7 @@ program
     .option('--ignore-https-errors', 'ignore https errors')
     .option('--isolated', 'keep the browser profile in memory, do not save it to disk.')
     .option('--image-responses <mode>', 'whether to send image responses to the client. Can be "allow" or "omit", Defaults to "allow".')
+    .option('--output-to-files', 'write detailed output to files instead of including in responses, significantly reduces token usage')
     .option('--no-sandbox', 'disable the sandbox for all process types that are normally sandboxed.')
     .option('--output-dir <path>', 'path to the directory for output files.')
     .option('--port <port>', 'port to listen on for SSE transport.')

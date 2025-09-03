@@ -116,4 +116,11 @@ export type Config = {
    * Whether to send image responses to the client. Can be "allow", "omit", or "auto". Defaults to "auto", which sends images if the client can display them.
    */
   imageResponses?: 'allow' | 'omit';
+
+  /**
+   * Write detailed output (console messages, network requests, full snapshots) to files
+   * instead of including in responses. Responses will contain file paths for users to examine.
+   * Significantly reduces token usage while preserving all debugging information.
+   */
+  outputToFiles?: boolean;
 };

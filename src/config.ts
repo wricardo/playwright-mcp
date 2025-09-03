@@ -38,6 +38,7 @@ export type CLIOptions = {
   ignoreHttpsErrors?: boolean;
   isolated?: boolean;
   imageResponses?: 'allow' | 'omit';
+  outputToFiles?: boolean;
   sandbox?: boolean;
   outputDir?: string;
   port?: number;
@@ -69,6 +70,7 @@ const defaultConfig: FullConfig = {
   },
   server: {},
   saveTrace: false,
+  outputToFiles: false,
 };
 
 type BrowserUserConfig = NonNullable<Config['browser']>;
@@ -82,6 +84,7 @@ export type FullConfig = Config & {
   network: NonNullable<Config['network']>,
   saveTrace: boolean;
   server: NonNullable<Config['server']>,
+  outputToFiles: boolean;
 };
 
 export async function resolveConfig(config: Config): Promise<FullConfig> {
@@ -192,6 +195,7 @@ export function configFromCLIOptions(cliOptions: CLIOptions): Config {
     saveTrace: cliOptions.saveTrace,
     outputDir: cliOptions.outputDir,
     imageResponses: cliOptions.imageResponses,
+    outputToFiles: cliOptions.outputToFiles,
   };
 
   return result;
@@ -214,6 +218,7 @@ function configFromEnv(): Config {
   options.isolated = envToBoolean(process.env.PLAYWRIGHT_MCP_ISOLATED);
   if (process.env.PLAYWRIGHT_MCP_IMAGE_RESPONSES === 'omit')
     options.imageResponses = 'omit';
+  options.outputToFiles = envToBoolean(process.env.PLAYWRIGHT_MCP_OUTPUT_TO_FILES);
   options.sandbox = envToBoolean(process.env.PLAYWRIGHT_MCP_SANDBOX);
   options.outputDir = envToString(process.env.PLAYWRIGHT_MCP_OUTPUT_DIR);
   options.port = envToNumber(process.env.PLAYWRIGHT_MCP_PORT);
@@ -241,7 +246,7 @@ async function loadConfig(configFile: string | undefined): Promise<Config> {
 export async function outputFile(config: FullConfig, rootPath: string | undefined, name: string): Promise<string> {
   const outputDir = config.outputDir
     ?? (rootPath ? path.join(rootPath, '.playwright-mcp') : undefined)
-    ?? path.join(os.tmpdir(), 'playwright-mcp-output', sanitizeForFilePath(new Date().toISOString()));
+    ?? (config.outputToFiles ? '/tmp' : path.join(os.tmpdir(), 'playwright-mcp-output', sanitizeForFilePath(new Date().toISOString())));
 
   await fs.promises.mkdir(outputDir, { recursive: true });
   const fileName = sanitizeForFilePath(name);
