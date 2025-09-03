@@ -34,13 +34,15 @@ const console = defineTabTool({
     }
 
     if (response.context.config.outputToFiles) {
-      // Write all console messages to file
+      // Write ALL console messages to file, show ONLY file reference
       const allMessages = messages.map(msg => msg.toString()).join('\n');
       await response.addResultWithFileOption(allMessages, 'console');
-      response.addResult(`Total console messages: ${messages.length}`);
+      // NO additional content in response - everything goes to file
     } else {
       // Include messages in response (existing behavior)
-      messages.map(message => response.addResult(message.toString()));
+      for (const message of messages) {
+        response.addResult(message.toString());
+      }
     }
   },
 });

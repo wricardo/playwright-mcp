@@ -40,23 +40,62 @@ const requests = defineTabTool({
     }
 
     if (response.context.config.outputToFiles) {
-      // Write all network requests to file
-      const allRequests = requestEntries.map(([req, res]) => renderRequest(req, res)).join('\n');
+      // Write ALL network requests to file, show ONLY file reference
+      const renderedRequests = await Promise.all(
+        requestEntries.map(([req, res]) => renderRequest(req, res))
+      );
+      const allRequests = renderedRequests.join('\n\n');
       await response.addResultWithFileOption(allRequests, 'network');
-      response.addResult(`Total network requests: ${requestEntries.length}`);
+      // NO additional content in response - everything goes to file
     } else {
       // Include requests in response (existing behavior)
-      requestEntries.forEach(([req, res]) => response.addResult(renderRequest(req, res)));
+      for (const [req, res] of requestEntries) {
+        response.addResult(await renderRequest(req, res));
+      }
     }
   },
 });
 
-function renderRequest(request: playwright.Request, response: playwright.Response | null) {
+async function renderRequest(request: playwright.Request, response: playwright.Response | null): Promise<string> {
   const result: string[] = [];
   result.push(`[${request.method().toUpperCase()}] ${request.url()}`);
-  if (response)
+  
+  // Add request headers for GraphQL or JSON requests
+  const contentType = request.headers()['content-type'];
+  if (contentType?.includes('application/json') || request.url().includes('graphql')) {
+    try {
+      const postData = request.postData();
+      if (postData) {
+        result.push(`Request Body: ${postData}`);
+      }
+    } catch (e) {
+      // Some requests may not have accessible post data
+    }
+  }
+  
+  if (response) {
     result.push(`=> [${response.status()}] ${response.statusText()}`);
-  return result.join(' ');
+    
+    // Add response body for GraphQL or JSON responses
+    const responseContentType = response.headers()['content-type'];
+    if (responseContentType?.includes('application/json') || request.url().includes('graphql')) {
+      try {
+        const body = await response.body();
+        const jsonBody = JSON.parse(body.toString());
+        result.push(`Response Body: ${JSON.stringify(jsonBody, null, 2)}`);
+      } catch (e) {
+        // Response body might not be JSON or might be too large
+        try {
+          const body = await response.body();
+          result.push(`Response Body (raw): ${body.toString().substring(0, 1000)}`);
+        } catch (e2) {
+          result.push(`Response Body: [Unable to read]`);
+        }
+      }
+    }
+  }
+  
+  return result.join('\n');
 }
 
 export default [

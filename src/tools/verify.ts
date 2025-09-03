@@ -36,12 +36,12 @@ const verifyElement = defineTabTool({
   handle: async (tab, params, response) => {
     const locator = tab.page.getByRole(params.role as any, { name: params.accessibleName });
     if (await locator.count() === 0) {
-      response.addError(`Element with role "${params.role}" and accessible name "${params.accessibleName}" not found`);
+      await response.addErrorWithFileOption(`Element with role "${params.role}" and accessible name "${params.accessibleName}" not found`);
       return;
     }
 
     response.addCode(`await expect(page.getByRole(${javascript.escapeWithQuotes(params.role)}, { name: ${javascript.escapeWithQuotes(params.accessibleName)} })).toBeVisible();`);
-    response.addResult('Done');
+    await response.addResultWithFileOption('Done');
   },
 });
 
@@ -60,12 +60,12 @@ const verifyText = defineTabTool({
   handle: async (tab, params, response) => {
     const locator = tab.page.getByText(params.text).filter({ visible: true });
     if (await locator.count() === 0) {
-      response.addError('Text not found');
+      await response.addErrorWithFileOption('Text not found');
       return;
     }
 
     response.addCode(`await expect(page.getByText(${javascript.escapeWithQuotes(params.text)})).toBeVisible();`);
-    response.addResult('Done');
+    await response.addResultWithFileOption('Done');
   },
 });
 
@@ -89,7 +89,7 @@ const verifyList = defineTabTool({
     for (const item of params.items) {
       const itemLocator = locator.getByText(item);
       if (await itemLocator.count() === 0) {
-        response.addError(`Item "${item}" not found`);
+        await response.addErrorWithFileOption(`Item "${item}" not found`);
         return;
       }
       itemTexts.push((await itemLocator.textContent())!);
@@ -99,7 +99,7 @@ const verifyList = defineTabTool({
 ${itemTexts.map(t => `  - listitem: ${javascript.escapeWithQuotes(t, '"')}`).join('\n')}
 \``;
     response.addCode(`await expect(page.locator('body')).toMatchAriaSnapshot(${ariaSnapshot});`);
-    response.addResult('Done');
+    await response.addResultWithFileOption('Done');
   },
 });
 
@@ -124,20 +124,20 @@ const verifyValue = defineTabTool({
     if (params.type === 'textbox' || params.type === 'slider' || params.type === 'combobox') {
       const value = await locator.inputValue();
       if (value !== params.value) {
-        response.addError(`Expected value "${params.value}", but got "${value}"`);
+        await response.addErrorWithFileOption(`Expected value "${params.value}", but got "${value}"`);
         return;
       }
       response.addCode(`await expect(${locatorSource}).toHaveValue(${javascript.quote(params.value)});`);
     } else if (params.type === 'checkbox' || params.type === 'radio') {
       const value = await locator.isChecked();
       if (value !== (params.value === 'true')) {
-        response.addError(`Expected value "${params.value}", but got "${value}"`);
+        await response.addErrorWithFileOption(`Expected value "${params.value}", but got "${value}"`);
         return;
       }
       const matcher = value ? 'toBeChecked' : 'not.toBeChecked';
       response.addCode(`await expect(${locatorSource}).${matcher}();`);
     }
-    response.addResult('Done');
+    await response.addResultWithFileOption('Done');
   },
 });
 

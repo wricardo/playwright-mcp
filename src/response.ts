@@ -48,13 +48,14 @@ export class Response {
     this._result.push(result);
   }
 
-  async addResultWithFileOption(result: string, type: 'console' | 'network' = 'console') {
-    if (this._context.config.outputToFiles && result.length > 500) {
-      // Write detailed output to file if it's long and outputToFiles is enabled
+  async addResultWithFileOption(result: string, type: 'console' | 'network' | 'evaluate' = 'console') {
+    if (this._context.config.outputToFiles) {
+      // Write to file and show ONLY file reference - NO content in response
       const filepath = await this._writeDetailedOutputToFile(result, type);
       this.addResult(`${type}: ${path.basename(filepath)}`);
       this.addResult(`Use: head/grep/tail/cat`);
     } else {
+      // Include content in response (existing behavior)
       this.addResult(result);
     }
   }
@@ -66,6 +67,18 @@ export class Response {
   addError(error: string) {
     this._result.push(error);
     this._isError = true;
+  }
+
+  async addErrorWithFileOption(error: string) {
+    if (this._context.config.outputToFiles) {
+      // Write error to file and show ONLY file reference
+      const filepath = await this._writeDetailedOutputToFile(error, 'console');
+      this.addResult(`Error: ${path.basename(filepath)}`);
+      this.addResult(`Use: head/grep/tail/cat`);
+    } else {
+      // Include error in response (existing behavior)
+      this.addError(error);
+    }
   }
 
   isError() {
@@ -100,9 +113,18 @@ export class Response {
     this._includeTabs = true;
   }
 
-  private async _writeDetailedOutputToFile(detailedContent: string, type: 'snapshot' | 'console' | 'network'): Promise<string> {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `${this.toolName}-${timestamp}.txt`;
+  private async _writeDetailedOutputToFile(detailedContent: string, type: 'snapshot' | 'console' | 'network' | 'evaluate'): Promise<string> {
+    // Get session ID from environment variable or generate a default
+    const sessionId = process.env.PLAYWRIGHT_MCP_SESSION_ID || 'default';
+    
+    // Unix timestamp in seconds (day precision)
+    const unixDay = Math.floor(Date.now() / 1000 / 86400) * 86400;
+    
+    // Generate random 5-character ID
+    const randomId = Math.random().toString(36).substring(2, 7);
+    
+    // Format: pw-s:{sessionId}-t:{unixTimestampDay}-{type}-id:{randomId}.txt
+    const filename = `pw-s:${sessionId}-t:${unixDay}-${type}-id:${randomId}.txt`;
     const filepath = await outputFile(this._context.config, undefined, filename);
     
     await fs.writeFile(filepath, detailedContent, 'utf-8');
@@ -144,8 +166,8 @@ export class Response {
       response.push('');
     }
 
-    // Add code if it exists.
-    if (this._code.length) {
+    // Add code if it exists - only show when NOT using file output
+    if (this._code.length && !this._context.config.outputToFiles) {
       response.push(`### Ran Playwright code
 \`\`\`js
 ${this._code.join('\n')}
@@ -153,8 +175,8 @@ ${this._code.join('\n')}
       response.push('');
     }
 
-    // List browser tabs.
-    if (this._includeSnapshot || this._includeTabs)
+    // List browser tabs - only show when NOT using file output
+    if ((this._includeSnapshot || this._includeTabs) && !this._context.config.outputToFiles)
       response.push(...renderTabsMarkdown(this._context.tabs(), this._includeTabs));
 
     // Add snapshot if provided - write to file or include in response
@@ -171,10 +193,10 @@ ${this._code.join('\n')}
         response.push('');
       }
     } else if (shouldIncludeSnapshot && this._tabSnapshot) {
-      const snapshotContent = renderTabSnapshot(this._tabSnapshot, this._context.config);
+      const snapshotContent = await renderTabSnapshot(this._tabSnapshot, this._context.config, this._context);
       if (this._context.config.outputToFiles) {
         const filepath = await this._writeDetailedOutputToFile(snapshotContent, 'snapshot');
-        response.push(`### Page info: ${path.basename(filepath)}`);
+        response.push(`### Snapshot: ${path.basename(filepath)}`);
         response.push(`Use: head/grep/tail/cat`);
         response.push('');
       } else {
@@ -198,15 +220,31 @@ ${this._code.join('\n')}
   }
 }
 
-function renderTabSnapshot(tabSnapshot: TabSnapshot, config: FullConfig): string {
+async function renderTabSnapshot(tabSnapshot: TabSnapshot, config: FullConfig, context?: Context): Promise<string> {
   const lines: string[] = [];
 
-  // Console messages - simplified for regular output, detailed content goes to files
+  // Console messages - write to file or show inline
   if (tabSnapshot.consoleMessages.length) {
-    if (config.outputToFiles) {
-      // Just show summary when writing to files
-      lines.push(`### Console messages (${tabSnapshot.consoleMessages.length} total)`);
-      lines.push(`- ${tabSnapshot.consoleMessages.length} console messages captured`);
+    if (config.outputToFiles && context) {
+      // Write console messages to file and show just reference
+      const allMessages = tabSnapshot.consoleMessages.map(msg => msg.toString()).join('\n');
+      
+      // Get session ID from environment variable or generate a default
+      const sessionId = process.env.PLAYWRIGHT_MCP_SESSION_ID || 'default';
+      
+      // Unix timestamp in seconds (day precision)
+      const unixDay = Math.floor(Date.now() / 1000 / 86400) * 86400;
+      
+      // Generate random 5-character ID
+      const randomId = Math.random().toString(36).substring(2, 7);
+      
+      // Format: pw-s:{sessionId}-t:{unixTimestampDay}-console-id:{randomId}.txt
+      const filename = `pw-s:${sessionId}-t:${unixDay}-console-id:${randomId}.txt`;
+      const filepath = await outputFile(config, undefined, filename);
+      await fs.writeFile(filepath, allMessages, 'utf-8');
+      
+      lines.push(`### Console: ${path.basename(filepath)}`);
+      lines.push(`Use: head/grep/tail/cat`);
     } else {
       // Original behavior - show limited console messages inline
       lines.push(`### New console messages`);
@@ -221,8 +259,8 @@ function renderTabSnapshot(tabSnapshot: TabSnapshot, config: FullConfig): string
     lines.push('');
   }
 
-  // Downloads - always show since they're usually important
-  if (tabSnapshot.downloads.length) {
+  // Downloads - only show when NOT using file output
+  if (tabSnapshot.downloads.length && (!config.outputToFiles || !context)) {
     lines.push(`### Downloads`);
     for (const entry of tabSnapshot.downloads) {
       if (entry.finished)
@@ -233,13 +271,16 @@ function renderTabSnapshot(tabSnapshot: TabSnapshot, config: FullConfig): string
     lines.push('');
   }
 
-  lines.push(`### Page state`);
-  lines.push(`- Page URL: ${tabSnapshot.url}`);
-  lines.push(`- Page Title: ${tabSnapshot.title}`);
-  lines.push(`- Page Snapshot:`);
-  lines.push('```yaml');
-  lines.push(tabSnapshot.ariaSnapshot);
-  lines.push('```');
+  // Only include page state and snapshot when NOT using file output
+  if (!config.outputToFiles || !context) {
+    lines.push(`### Page state`);
+    lines.push(`- Page URL: ${tabSnapshot.url}`);
+    lines.push(`- Page Title: ${tabSnapshot.title}`);
+    lines.push(`- Page Snapshot:`);
+    lines.push('```yaml');
+    lines.push(tabSnapshot.ariaSnapshot);
+    lines.push('```');
+  }
 
   return lines.join('\n');
 }

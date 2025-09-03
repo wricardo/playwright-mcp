@@ -52,7 +52,10 @@ const evaluate = defineTabTool({
     await tab.waitForCompletion(async () => {
       const receiver = locator ?? tab.page as any;
       const result = await receiver._evaluateFunction(params.function);
-      response.addResult(JSON.stringify(result, null, 2) || 'undefined');
+      const resultStr = JSON.stringify(result, null, 2) || 'undefined';
+      
+      // Use file output for large results when outputToFiles is enabled
+      await response.addResultWithFileOption(resultStr, 'evaluate');
     });
   },
 });

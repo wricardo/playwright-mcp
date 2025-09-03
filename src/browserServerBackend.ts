@@ -75,7 +75,7 @@ export class BrowserServerBackend implements ServerBackend {
       await response.finish();
       this._sessionLog?.logResponse(response);
     } catch (error: any) {
-      response.addError(String(error));
+      await response.addErrorWithFileOption(String(error));
     } finally {
       context.setRunningTool(undefined);
     }
